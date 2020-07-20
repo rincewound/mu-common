@@ -7,6 +7,8 @@ use image_receiver::ImageReceiver;
 
 mod crc;
 mod image_receiver;
+mod image_installer;
+mod image_launcher;
 
 pub enum WriteError
 {
@@ -39,7 +41,7 @@ pub struct bin_info
 
 
 #[repr(C)]
-struct update_info
+pub struct update_info
 {
     magic: [u8;5],
     struct_ver: u8,
@@ -80,83 +82,6 @@ fn on_error() -> !
     loop{}
 }
 
-fn check_update<T>(data: &update_info, flasher: &T) -> bool
-    where T: Flasher
-{
-    let magic = b"MUUPD";
-
-    if *magic != data.magic
-    {
-        return false;
-    }
-
-    if data.struct_ver != 1
-    {
-        return false;
-    }
-
-    if data.update_encoding != UpdateEncoding::Raw
-    {
-        return false;
-    }
-
-    return crc::check_crc(data.update_start, data.update_len, data.checksum, flasher);
-
-}
-
-fn check_binary<T>(data: &bin_info, flasher: &T) -> bool
-    where T: Flasher
-{
-    let magic = b"MUBIN";
-
-    if *magic != data.magic
-    {
-        return false;
-    }
-
-    if data.struct_ver != 1
-    {
-        return false;
-    }
-
-    return crc::check_crc(data.app_start, data.app_len, data.checksum, flasher);
-
-}
-
-fn install_binary<T>(data: &update_info, flasher: &mut T) -> bool
-    where T: Flasher
-{
-    const BUF_SIZE: usize = 64;
-    let mut buff: [u8; BUF_SIZE] = unsafe {core::mem::zeroed()};
-    let mut bytes_left = data.update_len as usize;
-    let mut bytes_written: usize = 0;
-    while bytes_left > 0
-    {
-        if let Ok(result) = flasher.read(data.update_start + bytes_written, &mut buff)
-        {
-            let dst_slice = &buff[0..result];
-            if let Ok(()) = flasher.write(data.target_adress + bytes_written, dst_slice)
-            {
-                bytes_left = bytes_left - result;
-                bytes_written = bytes_written + result;
-            }
-            else
-            {
-                // Failed to write.
-            }
-        }
-        else
-        {
-            // failed to read!
-        }
-        
-    }
-    
-    flasher.flush();
-
-    return crc::check_crc(data.target_adress, data.update_len, data.checksum, flasher);
-}
-
 fn receive_binary<T: Flasher, U: Read<u8> + Write<u8> >(flasher: T, uart: U) -> !
 {    
     let rec = ImageReceiver::new(flasher, uart);
@@ -173,10 +98,11 @@ pub fn muload_main<T, U: Read<u8> + Write<u8> >(update_info_address: usize, bin_
     // Assumption: Lowlevel init has been done by some other piece of code,
     // we can immediately check if we have a new binary
     if let Ok(update_info) = load_info_struct_from_address::<update_info, T>(update_info_address, &flasher)
-    {
-        if check_update(&update_info, &flasher)
+    {        
+
+        if image_installer::check_update(&update_info, &flasher)
         {
-            if !install_binary(&update_info, &mut flasher)
+            if !image_installer::install_binary(&update_info, &mut flasher)
             {
                 // Installation failed. This is basically the worst case as
                 // we now destroyed the installed image with a halfbaked version
@@ -192,13 +118,12 @@ pub fn muload_main<T, U: Read<u8> + Write<u8> >(update_info_address: usize, bin_
     // // but attempt to launch the actually installed binary if that is good:
     if let Ok(binary_info) = load_info_struct_from_address::<bin_info, T>(bin_info_address, &flasher)
     {
-        if !check_binary(&binary_info, &flasher)
+        if !image_launcher::check_binary(&binary_info, &flasher)
         {
             // Note that we assume that the app binary will setup its own stack and the likes
             // so basically: after we call app_start everything will be setup by the cstart routine (or similar)
             // of the binary.
-            // let app_start = unsafe {(binary_info.app_start as *const usize) as extern "C" fn() -> !};
-            // app_start();
+            image_launcher::launch_binary(binary_info);
         }
         loop{}
     }
