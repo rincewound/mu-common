@@ -2,11 +2,17 @@
 A bootloader framework for microcontrollers
 
 ## Features
-* Red/Green Deployments: Download a binary, check for consistency before actually installing to flash. 
-* LZMA Decoding
-* Low RAM usage
-* Salsa20 encrypted binaries
-* Download via UART if required
+- [x] Red/Green Deployments: Download a binary, check for consistency before actually installing to flash. 
+- [x] Low RAM usage
+- [x] Download via UART if required
+- [x] Mostly safe code (this is a bootloader - we need a bit of unsafe stuff.)
+- [ ] LZMA Decoding
+- [ ] Salsa20 encrypted binaries
+
+## Supports
+Ports are available for
+- [ ] STM32L4F401/Nucleo (Cortex M4)
+- [ ] nRF52810 (nordic DK/ Cortex M4)
 
 ## Concepts
 
@@ -26,7 +32,8 @@ struct bin_info
     struct_ver: u8,
     app_start: u32,
     app_len: u32,
-    checksum: u32
+    app_checksum: u32,
+    info_checksum: u32
 }
 ```
 
@@ -48,8 +55,9 @@ struct update_info
     update_start: u32,
     update_len: u32,
     target_adress: u32,
-    update_encoding: UpdateEncoding
-    checksum
+    update_encoding: UpdateEncoding,
+    update_checksum: u32,
+    info_checksum
 }
 ```
 Note: the "magic" field will always contain the bytes b"MUUPD". The update_info struct is located at a known address with the name:

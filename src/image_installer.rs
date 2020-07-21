@@ -16,10 +16,10 @@ where T: Flasher
         return false;
     }
 
-    if data.update_encoding != UpdateEncoding::Raw
-    {
-        return false;
-    }
+    // if data.update_encoding != UpdateEncoding::Raw
+    // {
+    //     return false;
+    // }
 
     return crc::check_crc(data.update_start, data.update_len, data.checksum, flasher);
 }

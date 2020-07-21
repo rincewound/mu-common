@@ -22,5 +22,9 @@ pub fn check_binary<T>(data: &bin_info, flasher: &T) -> bool
 
 pub fn launch_binary(data: bin_info) ->!
 {
-    loop{}
+    unsafe 
+    {
+        let app_entry = core::mem::transmute::<usize, fn() -> !>(data.app_start);
+        app_entry();
+    }
 }

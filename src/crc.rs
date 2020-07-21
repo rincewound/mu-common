@@ -1,7 +1,7 @@
 
 use super::Flasher;
 
-pub fn check_crc<T>(start_adr: usize, len: usize, checksum: u32, flasher: &T) -> bool
+pub fn check_crc<T>(start_adr: usize, len: usize, checksum: usize, flasher: &T) -> bool
     where T: Flasher
 {
     let mut crc = 0xFFFFFFFF as u32;
@@ -38,7 +38,7 @@ pub fn check_crc<T>(start_adr: usize, len: usize, checksum: u32, flasher: &T) ->
         }
     }
 
-    return checksum == crc as u32 ^ 0xFFFFFFFF as u32;
+    return checksum == crc as usize ^ 0xFFFFFFFF as usize;
 }
 
 // uint32_t CRC32_function(uint8_t *buf, uint32_t len){

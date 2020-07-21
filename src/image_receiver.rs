@@ -17,6 +17,15 @@ struct Packet
     data: Option<[u8;128]>
 }
 
+fn usize_from_packet(packet_data: &[u8], index: usize) -> usize
+{
+    let result = packet_data[index] << 24 |
+                packet_data[index + 1] << 16 |
+                packet_data[index + 2] << 8 |
+                packet_data[index + 3];
+    result as usize
+}
+
 pub struct ImageReceiver<T: Flasher, U: Read<u8> + Write<u8> >
 {
     flasher: T,
@@ -41,7 +50,7 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
         }
     }
 
-    pub fn execute(mut self) -> !
+    pub fn execute(mut self, update_info_address: usize) -> !
     {
         while !self.done
         {
@@ -64,6 +73,9 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
             if crc::check_crc(update_struct.update_start, update_struct.update_len, update_struct.checksum, &self.flasher)
             {
                 // Write the update struct as well
+                let num_bytes = core::mem::size_of::<super::update_info>();
+                let data_slice = unsafe {core::slice::from_raw_parts((&update_struct as *const super::update_info) as *const u8, num_bytes)};
+                let _= self.flasher.write(update_info_address, data_slice);
             }
         }
 
@@ -83,6 +95,25 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
 
     fn init_update(&mut self, packet: Packet) -> bool
     {
+        let payload = packet.data.unwrap();
+        let version = payload[6];        
+        let start_area = usize_from_packet(&payload, 7);
+        let upd_len = usize_from_packet(&payload, 11);
+        let target_adr = usize_from_packet(&payload, 15);
+        let checksum = usize_from_packet(&payload, 19);
+
+        // ToDo: Check if we actually received the correct magic value.
+        self.image_info = Some(super::update_info {
+            magic: ['M' as u8, 'U' as u8, 'U' as u8, 'P' as u8, 'D' as u8],
+            struct_ver: version,
+            update_start: start_area,
+            update_len: upd_len,
+            target_adress: target_adr,
+            checksum: checksum,
+        });
+
+        self.current_address = start_area;
+
         true
     }
 
