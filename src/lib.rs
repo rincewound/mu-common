@@ -103,7 +103,7 @@ fn on_error() -> !
     loop{}
 }
 
-pub fn muload_main<T, U: Read<u8> + Write<u8> >(update_info_address: usize, bin_info_address: usize, mut flasher: T, uart: U)
+pub fn muload_main<T, U: Read<u8> + Write<u8> >(update_info_address: usize, bin_info_address: usize, mut flasher: T, mut uart: U)
     where T: Flasher 
 {
     // first steps first: Send out a notification
@@ -145,7 +145,7 @@ pub fn muload_main<T, U: Read<u8> + Write<u8> >(update_info_address: usize, bin_
     {
         // Nothing bootable available - we stay in bootmode and wait until someone sends us
         // a binary via u(s)art
-        let rec = ImageReceiver::new(flasher, uart);
+        let rec = ImageReceiver::new(&mut flasher, &mut uart);
         rec.execute(update_info_address);
         // after we received the binary we just reboot. We'll endup in this function again
         // with a hopefully wellformed update_info which can be installed and booted.        

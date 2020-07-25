@@ -26,18 +26,18 @@ fn usize_from_packet(packet_data: &[u8], index: usize) -> usize
     result
 }
 
-pub struct ImageReceiver<T: Flasher, U: Read<u8> + Write<u8> >
+pub struct ImageReceiver<'a, T: Flasher, U: Read<u8> + Write<u8> >
 {
-    flasher: T,
-    uart: U,
+    flasher: &'a mut T,
+    uart: &'a mut U,
     done: bool,
     current_address: usize,
     image_info: Option<super::update_info>
 }
 
-impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
+impl <'a, T: Flasher, U: Read<u8> + Write<u8>> ImageReceiver<'a, T,U>
 {
-    pub fn new(flasher: T, uart: U) -> Self
+    pub fn new(flasher: &'a mut T, uart: &'a mut U) -> Self
         where T: Flasher, U: Read<u8> + Write<u8> 
     {
         Self
@@ -67,10 +67,14 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
             }
         }
 
+        // Note: At this point we could check if we received enough bytes (as indicated by
+        // the infostruct), however: If we did not receive enough bytes the CRC check should
+        // fail, thus not writing the update struct to flash.
+
         // check the received image's CRC against the update_info_struct
         if let Some(update_struct) = self.image_info
         {
-            if crc::check_crc(update_struct.update_start, update_struct.update_len, update_struct.checksum, &self.flasher)
+            if crc::check_crc(update_struct.update_start, update_struct.update_len, update_struct.checksum, self.flasher)
             {
                 // Write the update struct as well
                 let num_bytes = core::mem::size_of::<super::update_info>();
@@ -94,11 +98,11 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
     fn init_update(&mut self, packet: Packet) -> bool
     {
         let payload = packet.data.unwrap();
-        let version = payload[6];        
-        let start_area = usize_from_packet(&payload, 7);
-        let upd_len = usize_from_packet(&payload, 11);
-        let target_adr = usize_from_packet(&payload, 15);
-        let checksum = usize_from_packet(&payload, 19);
+        let version = payload[5];        
+        let start_area = usize_from_packet(&payload, 6);
+        let upd_len = usize_from_packet(&payload, 10);
+        let target_adr = usize_from_packet(&payload, 14);
+        let checksum = usize_from_packet(&payload, 18);
 
         // ToDo: Check if we actually received the correct magic value.
         self.image_info = Some(super::update_info {
@@ -132,6 +136,10 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
         return true;
     }
 
+    /// This function is guaranteed to return 
+    /// a received byte. However, this means
+    /// it will block forever, if nothing
+    /// arrives. 
     fn get_byte(&mut self) -> u8
     {
         loop 
@@ -164,7 +172,7 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
             let mut bytes_to_receive = 128;
             if packet_type == INIT
             {
-                bytes_to_receive = 24;
+                bytes_to_receive = 22;
             }
 
             let mut payload: [u8; 128] = [0;128];
@@ -202,22 +210,21 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
 }
 
 #[cfg(test)]
-mod target_adress
+mod test
 {
     use embedded_hal::serial::{Read, Write};
     use nb;
     use super::Flasher;
 
-    pub enum SomeEnum {
-        Fail
-    }
+    pub enum SomeEnum { }
 
     struct FakeUart
     {
         pub memory: [u8; 256],
         pub out_buf: [u8; 256],
         pub read_index: usize,
-        pub write_index: usize
+        pub write_index: usize,
+        pub mem_use: usize
     }
 
     impl FakeUart
@@ -229,7 +236,8 @@ mod target_adress
                 memory: [0; 256],
                 out_buf: [0; 256],
                 read_index: 0,
-                write_index: 0
+                write_index: 0,
+                mem_use: 0
             }
         }
     }
@@ -292,9 +300,15 @@ mod target_adress
             return Ok(());
         }
 
-        fn read(&self, source_address: usize, destination: &mut[u8]) -> Result<usize, crate::ReadError> {
-        todo!()
+        fn read(&self, source_address: usize, destination: &mut[u8]) -> Result<usize, crate::ReadError> 
+        {
+            for index in 0..destination.len()
+            {
+                destination[index] = self.memory[source_address + index];
+            }
+            Ok(destination.len())
         }
+
         fn flush(&mut self) {
             self.flush_called = true;           
         }
@@ -302,17 +316,19 @@ mod target_adress
 
     fn copy_to_uart( uart: &mut FakeUart, data: &[u8])
     {
-        for (index, byte) in data.iter().enumerate()
+        for byte in data.iter()
         {
-            uart.memory[index] = *byte;
+            uart.memory[uart.mem_use] = *byte;
+            uart.mem_use += 1
         }
+
     }
 
-    fn copy_to_flasher( uart: &mut FakeFlasher, data: &[u8])
+    fn copy_to_flasher( flasher: &mut FakeFlasher, data: &[u8])
     {
         for (index, byte) in data.iter().enumerate()
         {
-            uart.memory[index] = *byte;
+            flasher.memory[index] = *byte;
         }
     }
 
@@ -323,7 +339,67 @@ mod target_adress
         let mut uart = FakeUart::new();
         let packet = [super::STX, super::END, super::ETX, 0x05];
         copy_to_uart(&mut uart, &packet);
-        let r = super::ImageReceiver::new(FakeFlasher::new(), uart);
-        r.execute(0x1000);        
+
+        let mut flasher = FakeFlasher::new();
+
+        let r = super::ImageReceiver::new(&mut flasher, & mut uart);
+        r.execute(0x1000); 
+        assert!(uart.out_buf[0] == super::ACK)       
+    }
+
+    #[test]
+    pub fn init_will_start_the_update()
+    {
+        // If we send a valid update start and then a datapacket, 
+        // the packet should end up at the specified locatsion
+        let mut uart = FakeUart::new();
+        let packet = [super::STX, 
+                                super::INIT,             // Packet Type
+                                b'M', b'U', b'U', b'P', b'D', // Magic
+                                0x01,                    // Struct Version                                
+                                0x00, 0x00, 0x20, 0x00,  // write to 0x2000
+                                0x00, 0x00, 0x00, 0x80,  // 128 byte update len
+                                0x00, 0x00, 0x40, 0x00,  // Installation area is 0x4000
+                                0xAB, 0xCD, 0xEF, 0xAA,  // CRC
+                                super::ETX, 140];
+        copy_to_uart(&mut uart, &packet);
+
+
+        let packet2  = [super::STX, super::DATA, 
+                                 1,2,3,4,5,6,7,8,
+                                 1,2,3,4,5,6,7,16,
+                                 1,2,3,4,5,6,7,24,
+                                 1,2,3,4,5,6,7,32,
+                                 1,2,3,4,5,6,7,40,
+                                 1,2,3,4,5,6,7,48,
+                                 1,2,3,4,5,6,7,56,
+                                 1,2,3,4,5,6,7,64,
+                                 1,2,3,4,5,6,7,72,
+                                 1,2,3,4,5,6,7,80,
+                                 1,2,3,4,5,6,7,88,
+                                 1,2,3,4,5,6,7,96,
+                                 1,2,3,4,5,6,7,104,
+                                 1,2,3,4,5,6,7,112,
+                                 1,2,3,4,5,6,7,120,
+                                 1,2,3,4,5,6,7,128,
+                                 super::ETX, 128];
+        copy_to_uart(&mut uart, &packet2);
+
+        let packet3 = [super::STX, super::END, super::ETX, 0x05];
+        copy_to_uart(&mut uart, &packet3);
+
+        let mut flasher = FakeFlasher::new();
+
+        let r = super::ImageReceiver::new(&mut flasher, & mut uart);
+        r.execute(0x1000); 
+
+        // read back data:
+        for i in 1..8
+        {
+            let mut buf: [u8; 1] = [0];
+            let _ = flasher.read((0x2000 + i * 8) - 1, &mut buf[..]);
+            assert!(buf[0] == (i * 8) as u8);
+        }
+
     }
 }

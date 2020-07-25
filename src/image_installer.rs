@@ -28,7 +28,7 @@ pub fn install_binary<T>(data: &update_info, flasher: &mut T) -> bool
 where T: Flasher
 {
     const BUF_SIZE: usize = 64;
-    let mut buff: [u8; BUF_SIZE] = unsafe {core::mem::zeroed()};
+    let mut buff: [u8; BUF_SIZE] = [0; BUF_SIZE];
     let mut bytes_left = data.update_len as usize;
     let mut bytes_written: usize = 0;
     while bytes_left > 0
@@ -54,6 +54,8 @@ where T: Flasher
     }
     
     flasher.flush();
+
+    // ToDo: Write Bin_Info with data from update_info 
 
     return crc::check_crc(data.target_adress, data.update_len, data.checksum, flasher);
 }
