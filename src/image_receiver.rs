@@ -19,11 +19,11 @@ struct Packet
 
 fn usize_from_packet(packet_data: &[u8], index: usize) -> usize
 {
-    let result = packet_data[index] << 24 |
-                packet_data[index + 1] << 16 |
-                packet_data[index + 2] << 8 |
-                packet_data[index + 3];
-    result as usize
+    let result = ((packet_data[index] as u32) << 24 |
+                 (packet_data[index + 1]as u32) << 16 |
+                 (packet_data[index + 2]as u32) << 8 |
+                 (packet_data[index + 3]as u32)) as usize;
+    result
 }
 
 pub struct ImageReceiver<T: Flasher, U: Read<u8> + Write<u8> >
@@ -50,7 +50,7 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
         }
     }
 
-    pub fn execute(mut self, update_info_address: usize) -> !
+    pub fn execute(mut self, update_info_address: usize)
     {
         while !self.done
         {
@@ -78,8 +78,6 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
                 let _= self.flasher.write(update_info_address, data_slice);
             }
         }
-
-        loop{}
     }
 
     fn dispatch_packet(&mut self, packet: Packet) -> bool
@@ -138,7 +136,8 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
     {
         loop 
         {
-            if let Ok(byte ) = self.uart.read()
+            let read_result = self.uart.read();
+            if let Ok(byte ) = read_result
             {
                 return byte;
             }
@@ -149,7 +148,7 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
     {
         loop 
         {
-            if self.get_byte() != STX
+            if self.get_byte() == STX
             {                
                 break
             }
@@ -199,5 +198,132 @@ impl <T: Flasher,U: Read<u8> + Write<u8>> ImageReceiver<T,U>
         }
         
         return Some(Packet{packettype: packet_type, data: received_data});
+    }
+}
+
+#[cfg(test)]
+mod target_adress
+{
+    use embedded_hal::serial::{Read, Write};
+    use nb;
+    use super::Flasher;
+
+    pub enum SomeEnum {
+        Fail
+    }
+
+    struct FakeUart
+    {
+        pub memory: [u8; 256],
+        pub out_buf: [u8; 256],
+        pub read_index: usize,
+        pub write_index: usize
+    }
+
+    impl FakeUart
+    {
+        pub fn new() -> Self
+        {
+            Self
+            {
+                memory: [0; 256],
+                out_buf: [0; 256],
+                read_index: 0,
+                write_index: 0
+            }
+        }
+    }
+
+    impl Read::<u8> for FakeUart
+    {
+        type Error = SomeEnum;
+        fn read(&mut self) -> nb::Result<u8, Self::Error> {
+            if self.read_index > 256
+            {
+                return Err(nb::Error::WouldBlock)
+            }
+            let result = self.memory[self.read_index];
+            self.read_index += 1;
+            Ok(result)
+        }
+    }
+
+    impl Write::<u8> for FakeUart
+    {
+        type Error = SomeEnum;
+        fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> 
+        {
+            self.out_buf[self.write_index] = word;
+            self.write_index += 1;
+            Ok(())
+        }
+        fn flush(&mut self) -> nb::Result<(), Self::Error> 
+        {
+            todo!()
+        }
+        
+    }
+
+    struct FakeFlasher
+    {
+        memory: [u8; 0x8000],
+        flush_called: bool
+    }
+
+    impl FakeFlasher
+    {
+        pub fn new() -> Self
+        {
+            Self
+            {
+                memory: [0x00; 0x8000],
+                flush_called: false
+            }
+        }
+    }
+
+    impl Flasher for FakeFlasher
+    {
+        fn write(&mut self, destination: usize, data: &[u8]) -> Result<(), crate::WriteError> {
+            for (index, byte) in data.iter().enumerate()
+            {
+                self.memory[destination + index as usize] = *byte;
+            }
+            return Ok(());
+        }
+
+        fn read(&self, source_address: usize, destination: &mut[u8]) -> Result<usize, crate::ReadError> {
+        todo!()
+        }
+        fn flush(&mut self) {
+            self.flush_called = true;           
+        }
+    }
+
+    fn copy_to_uart( uart: &mut FakeUart, data: &[u8])
+    {
+        for (index, byte) in data.iter().enumerate()
+        {
+            uart.memory[index] = *byte;
+        }
+    }
+
+    fn copy_to_flasher( uart: &mut FakeFlasher, data: &[u8])
+    {
+        for (index, byte) in data.iter().enumerate()
+        {
+            uart.memory[index] = *byte;
+        }
+    }
+
+
+    #[test]
+    pub fn can_exit_updater_when_sending_end_packet()
+    {
+        let mut uart = FakeUart::new();
+        let packet = [super::STX, super::END, super::ETX, 0x05];
+        copy_to_uart(&mut uart, &packet);
+        let r = super::ImageReceiver::new(FakeFlasher::new(), uart);
+        r.execute(0x1000);        
     }
 }

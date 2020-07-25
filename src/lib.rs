@@ -1,10 +1,10 @@
 #![no_std]
 
 extern crate embedded_hal;
+extern crate nb;
 
 use embedded_hal::serial::{Read, Write};
 use image_receiver::ImageReceiver;
-use core::ptr;
 
 mod crc;
 mod image_receiver;
