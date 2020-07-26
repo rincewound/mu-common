@@ -11,6 +11,9 @@ mod image_receiver;
 mod image_installer;
 mod image_launcher;
 
+#[cfg(test)]
+mod testhelpers;
+
 pub enum WriteError
 {
     NoData,

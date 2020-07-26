@@ -212,139 +212,38 @@ impl <'a, T: Flasher, U: Read<u8> + Write<u8>> ImageReceiver<'a, T,U>
 #[cfg(test)]
 mod test
 {
-    use embedded_hal::serial::{Read, Write};
-    use nb;
-    use super::Flasher;
-
-    pub enum SomeEnum { }
-
-    struct FakeUart
-    {
-        pub memory: [u8; 256],
-        pub out_buf: [u8; 256],
-        pub read_index: usize,
-        pub write_index: usize,
-        pub mem_use: usize
-    }
-
-    impl FakeUart
-    {
-        pub fn new() -> Self
-        {
-            Self
-            {
-                memory: [0; 256],
-                out_buf: [0; 256],
-                read_index: 0,
-                write_index: 0,
-                mem_use: 0
-            }
-        }
-    }
-
-    impl Read::<u8> for FakeUart
-    {
-        type Error = SomeEnum;
-        fn read(&mut self) -> nb::Result<u8, Self::Error> {
-            if self.read_index > 256
-            {
-                return Err(nb::Error::WouldBlock)
-            }
-            let result = self.memory[self.read_index];
-            self.read_index += 1;
-            Ok(result)
-        }
-    }
-
-    impl Write::<u8> for FakeUart
-    {
-        type Error = SomeEnum;
-        fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> 
-        {
-            self.out_buf[self.write_index] = word;
-            self.write_index += 1;
-            Ok(())
-        }
-        fn flush(&mut self) -> nb::Result<(), Self::Error> 
-        {
-            todo!()
-        }
-        
-    }
-
-    struct FakeFlasher
-    {
-        memory: [u8; 0x8000],
-        flush_called: bool
-    }
-
-    impl FakeFlasher
-    {
-        pub fn new() -> Self
-        {
-            Self
-            {
-                memory: [0x00; 0x8000],
-                flush_called: false
-            }
-        }
-    }
-
-    impl Flasher for FakeFlasher
-    {
-        fn write(&mut self, destination: usize, data: &[u8]) -> Result<(), crate::WriteError> {
-            for (index, byte) in data.iter().enumerate()
-            {
-                self.memory[destination + index as usize] = *byte;
-            }
-            return Ok(());
-        }
-
-        fn read(&self, source_address: usize, destination: &mut[u8]) -> Result<usize, crate::ReadError> 
-        {
-            for index in 0..destination.len()
-            {
-                destination[index] = self.memory[source_address + index];
-            }
-            Ok(destination.len())
-        }
-
-        fn flush(&mut self) {
-            self.flush_called = true;           
-        }
-    }
-
-    fn copy_to_uart( uart: &mut FakeUart, data: &[u8])
-    {
-        for byte in data.iter()
-        {
-            uart.memory[uart.mem_use] = *byte;
-            uart.mem_use += 1
-        }
-
-    }
-
-    fn copy_to_flasher( flasher: &mut FakeFlasher, data: &[u8])
-    {
-        for (index, byte) in data.iter().enumerate()
-        {
-            flasher.memory[index] = *byte;
-        }
-    }
-
+    use crate::testhelpers::*;
+    use crate::Flasher;
 
     #[test]
     pub fn can_exit_updater_when_sending_end_packet()
     {
         let mut uart = FakeUart::new();
-        let packet = [super::STX, super::END, super::ETX, 0x05];
-        copy_to_uart(&mut uart, &packet);
+        make_packet(&mut uart, &[super::STX, super::END, super::ETX, 0x05]);
 
         let mut flasher = FakeFlasher::new();
 
         let r = super::ImageReceiver::new(&mut flasher, & mut uart);
         r.execute(0x1000); 
         assert!(uart.out_buf[0] == super::ACK)       
+    }
+
+    #[test]
+    pub fn will_respond_with_nak_on_bad_bcc()
+    {
+        let mut uart = FakeUart::new();
+        let packet = [super::STX, super::END, super::ETX, 0x77];
+        copy_to_uart(&mut uart, &packet);
+
+        // We need to send the second packet as well to actually terminate the
+        // execute loop
+        make_packet(&mut uart, &[super::STX, super::END, super::ETX, 0x05]);
+
+        let mut flasher = FakeFlasher::new();
+
+        let r = super::ImageReceiver::new(&mut flasher, & mut uart);
+        r.execute(0x1000);         
+        assert!(uart.out_buf[0] == super::NAK)        
     }
 
     #[test]
@@ -361,8 +260,8 @@ mod test
                                 0x00, 0x00, 0x00, 0x80,  // 128 byte update len
                                 0x00, 0x00, 0x40, 0x00,  // Installation area is 0x4000
                                 0xAB, 0xCD, 0xEF, 0xAA,  // CRC
-                                super::ETX, 140];
-        copy_to_uart(&mut uart, &packet);
+                                super::ETX];
+        make_packet(&mut uart, &packet);
 
 
         let packet2  = [super::STX, super::DATA, 
@@ -382,11 +281,9 @@ mod test
                                  1,2,3,4,5,6,7,112,
                                  1,2,3,4,5,6,7,120,
                                  1,2,3,4,5,6,7,128,
-                                 super::ETX, 128];
-        copy_to_uart(&mut uart, &packet2);
-
-        let packet3 = [super::STX, super::END, super::ETX, 0x05];
-        copy_to_uart(&mut uart, &packet3);
+                                 super::ETX];
+        make_packet(&mut uart, &packet2);        
+        make_packet(&mut uart, &[super::STX, super::END, super::ETX]);
 
         let mut flasher = FakeFlasher::new();
 
