@@ -35,10 +35,19 @@ where T: Flasher
     {
         if let Ok(result) = flasher.read(data.update_start + bytes_written, &mut buff)
         {
-            let dst_slice = &buff[0..result];
+            let bytes_to_copy = if result > bytes_left { bytes_left } else { result };
+            let dst_slice = &buff[0..bytes_to_copy];
+
             if let Ok(()) = flasher.write(data.target_adress + bytes_written, dst_slice)
             {
-                bytes_left = bytes_left - result;
+                if bytes_left > result
+                {
+                    bytes_left = bytes_left - result;
+                }
+                else
+                {
+                    bytes_left = 0;
+                }
                 bytes_written = bytes_written + result;
             }
             else
@@ -63,8 +72,8 @@ where T: Flasher
 #[cfg(test)]
 mod test
 {
-    use crate::{update_info, testhelpers::FakeFlasher};
-    use super::check_update;
+    use crate::{update_info, testhelpers::FakeFlasher, testhelpers::copy_to_flasher};
+    use super::{check_update, install_binary};
 
 
     #[test]
@@ -130,4 +139,33 @@ mod test
 
         assert!(true == check_update(&update_info, &fl));       
     }
+
+    #[test]
+    pub fn install_binary_will_copy_bytes()
+    {
+        let mut fl = FakeFlasher::new();
+        let binary: [u8;5] = [0xAA, 0xBB, 0xCC, 0xDD, 0x11];
+        copy_to_flasher(&mut fl, 0x1000, &binary);
+
+        let update_info = update_info {
+            magic: [b'M', b'U', b'U', b'P', b'D'],
+            struct_ver: 1,
+            update_len: 5,
+            update_start: 0x1000,
+            target_adress: 0x4000,
+            checksum: 0x9988C6CA
+        };       
+
+
+        install_binary(&update_info, &mut fl);
+
+        for i in 0..5
+        {
+            assert!(fl.memory[i + 0x4000] == binary[i]);
+        }
+
+        assert!(fl.flush_called)
+    }
+
+
 }

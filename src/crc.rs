@@ -50,7 +50,7 @@ pub fn check_crc<T>(start_adr: usize, len: usize, checksum: usize, flasher: &T) 
         }
     }
 
-    let actual_crc = (crc as usize ^ 0xFFFFFFFF as usize);
+    let actual_crc = crc as usize ^ 0xFFFFFFFF as usize;
     return checksum == actual_crc;
 }
 
@@ -65,7 +65,7 @@ mod test
     fn can_calc_crc()
     {
         let mut fl = FakeFlasher::new();
-        copy_to_flasher(&mut fl, &[0xAA,0xBB,0xCC,0xDD,0xEE,0xFF,0x11,0x22]);        
+        copy_to_flasher(&mut fl, 0, &[0xAA,0xBB,0xCC,0xDD,0xEE,0xFF,0x11,0x22]);        
         assert!(true == check_crc(0, 8, 0x65133A42, &mut fl))
     }
 }

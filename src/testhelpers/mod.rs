@@ -60,8 +60,8 @@ impl Write::<u8> for FakeUart
 
 pub struct FakeFlasher
 {
-    memory: [u8; 0x8000],
-    flush_called: bool
+    pub memory: [u8; 0x8000],
+    pub flush_called: bool
 }
 
 impl FakeFlasher
@@ -111,11 +111,11 @@ pub fn copy_to_uart( uart: &mut FakeUart, data: &[u8])
 
 }
 
-pub fn copy_to_flasher( flasher: &mut FakeFlasher, data: &[u8])
+pub fn copy_to_flasher( flasher: &mut FakeFlasher, offset: usize, data: &[u8])
 {
     for (index, byte) in data.iter().enumerate()
     {
-        flasher.memory[index] = *byte;
+        flasher.memory[index + offset] = *byte;
     }
 }
 
