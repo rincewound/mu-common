@@ -14,9 +14,9 @@ pub fn check_crc<T>(start_adr: usize, len: usize, checksum: usize, flasher: &T) 
         {
             let num_bytes_to_process: usize;
 
-            if num_bytes_read > len
+            if num_bytes_read > bytes_left
             {
-                num_bytes_to_process = len;
+                num_bytes_to_process = bytes_left;
             }
             else
             {
@@ -50,7 +50,8 @@ pub fn check_crc<T>(start_adr: usize, len: usize, checksum: usize, flasher: &T) 
         }
     }
 
-    return checksum == crc as usize ^ 0xFFFFFFFF as usize;
+    let actual_crc = (crc as usize ^ 0xFFFFFFFF as usize);
+    return checksum == actual_crc;
 }
 
 

@@ -59,3 +59,75 @@ where T: Flasher
 
     return crc::check_crc(data.target_adress, data.update_len, data.checksum, flasher);
 }
+
+#[cfg(test)]
+mod test
+{
+    use crate::{update_info, testhelpers::FakeFlasher};
+    use super::check_update;
+
+
+    #[test]
+    pub fn check_update_will_yield_false_if_magic_word_is_missing()
+    {
+        let fl = FakeFlasher::new();
+        let update_info = update_info {
+            magic: [b'M', b'M', b'M', b'M', b'M'],
+            struct_ver: 1,
+            update_len: 100,
+            update_start: 0x1000,
+            target_adress: 0x4000,
+            checksum: 0x9988C6CA
+        };
+
+        assert!(false == check_update(&update_info, &fl));
+    }
+
+    #[test]
+    pub fn check_update_will_yield_false_if_struct_ver_is_bad()
+    {
+        let fl = FakeFlasher::new();
+        let update_info = update_info {
+            magic: [b'M', b'U', b'U', b'P', b'D'],
+            struct_ver: 2,
+            update_len: 100,
+            update_start: 0x1000,
+            target_adress: 0x4000,
+            checksum: 0x9988C6CA
+        };
+
+        assert!(false == check_update(&update_info, &fl));       
+    }
+
+    #[test]
+    pub fn check_update_will_yield_false_if_checksum_is_bad()
+    {
+        let fl = FakeFlasher::new();
+        let update_info = update_info {
+            magic: [b'M', b'U', b'U', b'P', b'D'],
+            struct_ver: 1,
+            update_len: 100,
+            update_start: 0x1000,
+            target_adress: 0x4000,
+            checksum: 0xC0FFEE
+        };
+
+        assert!(false == check_update(&update_info, &fl));       
+    }
+
+    #[test]
+    pub fn check_update_will_yield_true_if_no_error()
+    {
+        let fl = FakeFlasher::new();
+        let update_info = update_info {
+            magic: [b'M', b'U', b'U', b'P', b'D'],
+            struct_ver: 1,
+            update_len: 100,
+            update_start: 0x1000,
+            target_adress: 0x4000,
+            checksum: 0x9988C6CA
+        };
+
+        assert!(true == check_update(&update_info, &fl));       
+    }
+}

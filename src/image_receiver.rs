@@ -297,6 +297,7 @@ mod test
             let _ = flasher.read((0x2000 + i * 8) - 1, &mut buf[..]);
             assert!(buf[0] == (i * 8) as u8);
         }
-
     }
+
+    
 }
